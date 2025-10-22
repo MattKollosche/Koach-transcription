@@ -14,10 +14,9 @@ const WebSocket = require('ws');
 const http = require('http');
 const { AssemblyAI } = require('assemblyai');
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const PROXY_URL = 'https://tisayujoykquxfflubjn.supabase.co/functions/v1/proxy-transcript';
-const DB_UPDATE_INTERVAL = 5000; // 5 seconds for live_transcript
-const RECORDING_UPDATE_INTERVAL = 30000; // 30 seconds for recording_transcript
+const PERSIST_MIN_INTERVAL_MS = 2000; // throttle: min 2s between proxy writes
 
 // Initialize AssemblyAI client
 const assemblyAIKey = process.env.ASSEMBLYAI_API_KEY;
@@ -114,34 +113,23 @@ wss.on('connection', (ws) => {
   // Connection state
   let sessionId = null;
   let fullTranscript = '';
-  let lastLiveUpdateMs = 0;
-  let lastRecordingUpdateMs = 0;
+  let lastPersistMs = 0;
   let transcriber = null;
   let isTranscriberReady = false;
+  let reconnectAttempts = 0;
+  const maxReconnectAttempts = 3;
 
   // Helper function to send throttled transcript updates
   async function sendTranscriptUpdate() {
     if (!sessionId || !fullTranscript) return;
-
     const now = Date.now();
-
-    // Update live_transcript every 5 seconds
-    if (now - lastLiveUpdateMs >= DB_UPDATE_INTERVAL) {
-      console.log(`[Session ${sessionId}] Updating live_transcript`);
-      await sendToProxy(sessionId, {
-        live_transcript: fullTranscript,
-      });
-      lastLiveUpdateMs = now;
-    }
-
-    // Update recording_transcript every 30 seconds
-    if (now - lastRecordingUpdateMs >= RECORDING_UPDATE_INTERVAL) {
-      console.log(`[Session ${sessionId}] Updating recording_transcript`);
-      await sendToProxy(sessionId, {
-        recording_transcript: fullTranscript,
-      });
-      lastRecordingUpdateMs = now;
-    }
+    if (now - lastPersistMs < PERSIST_MIN_INTERVAL_MS) return;
+    console.log(`[Session ${sessionId}] Persisting transcripts (throttled)`);
+    await sendToProxy(sessionId, {
+      live_transcript: fullTranscript,
+      recording_transcript: fullTranscript,
+    });
+    lastPersistMs = now;
   }
 
   // Initialize AssemblyAI transcriber
@@ -172,9 +160,23 @@ wss.on('connection', (ws) => {
         // Send error to client
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
-            type: 'error',
-            error: 'Transcription service error',
+            type: 'connection.status',
+            status: 'error',
           }));
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Transcription service error',
+          }));
+        }
+
+        // Attempt reconnect with backoff
+        if (reconnectAttempts < maxReconnectAttempts) {
+          const delayMs = Math.pow(2, reconnectAttempts) * 1000;
+          reconnectAttempts += 1;
+          console.log(`[Session ${sessionId}] Reconnecting to AssemblyAI in ${delayMs}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+          setTimeout(() => {
+            initializeTranscriber();
+          }, delayMs);
         }
       });
 
@@ -186,6 +188,24 @@ wss.on('connection', (ws) => {
           await sendToProxy(sessionId, {
             connection_status: 'disconnected',
           });
+        }
+
+        // Notify client of disconnection
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'connection.status',
+            status: 'disconnected',
+          }));
+        }
+
+        // Attempt reconnect with backoff
+        if (reconnectAttempts < maxReconnectAttempts) {
+          const delayMs = Math.pow(2, reconnectAttempts) * 1000;
+          reconnectAttempts += 1;
+          console.log(`[Session ${sessionId}] Reconnecting to AssemblyAI in ${delayMs}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+          setTimeout(() => {
+            initializeTranscriber();
+          }, delayMs);
         }
       });
 
@@ -202,7 +222,7 @@ wss.on('connection', (ws) => {
           
           // Append to accumulated transcript
           if (fullTranscript) {
-            fullTranscript += ' ' + text;
+            fullTranscript += '\n' + text;
           } else {
             fullTranscript = text;
           }
@@ -217,7 +237,7 @@ wss.on('connection', (ws) => {
             ws.send(JSON.stringify({
               type: 'transcript.final',
               text: text,
-              full_transcript: fullTranscript,
+              fullTranscript: fullTranscript,
             }));
           }
         }
@@ -227,6 +247,7 @@ wss.on('connection', (ws) => {
       console.log(`[Session ${sessionId}] Connecting to AssemblyAI...`);
       await transcriber.connect();
       console.log(`[Session ${sessionId}] Connected to AssemblyAI streaming service`);
+      reconnectAttempts = 0;
 
     } catch (error) {
       console.error(`[Session ${sessionId}] Failed to initialize transcriber:`, error);
@@ -267,11 +288,11 @@ wss.on('connection', (ws) => {
           recording_status: 'recording',
         });
 
-        // Send ready confirmation to client
+        // Notify client of connection status
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
-            type: 'session.ready',
-            sessionId: sessionId,
+            type: 'connection.status',
+            status: 'connected',
           }));
         }
 
@@ -311,6 +332,22 @@ wss.on('connection', (ws) => {
         if (transcriber && isTranscriberReady) {
           console.log(`[Session ${sessionId}] Closing transcriber...`);
           await transcriber.close();
+        }
+
+        // Final flush to proxy
+        if (sessionId && fullTranscript) {
+          await sendToProxy(sessionId, {
+            live_transcript: fullTranscript,
+            recording_transcript: fullTranscript,
+          });
+        }
+
+        // Notify client of disconnection
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'connection.status',
+            status: 'disconnected',
+          }));
         }
 
         return;
