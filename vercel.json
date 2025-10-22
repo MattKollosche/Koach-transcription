@@ -2,9 +2,6 @@
   "functions": {
     "api/**/*.js": {
       "runtime": "nodejs18.x"
-    },
-    "api/realtime.js": {
-      "runtime": "edge"
     }
   }
 }
