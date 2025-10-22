@@ -25,6 +25,14 @@ export default async function handler(request) {
 
   try {
     console.log('Creating WebSocket pair...');
+    
+    // Check if WebSocketPair is available
+    if (typeof WebSocketPair === 'undefined') {
+      console.error('WebSocketPair is not available in this runtime');
+      return new Response('WebSocket not supported in this runtime', { status: 500 });
+    }
+    
+    console.log('WebSocketPair is available, creating pair...');
     const pair = new WebSocketPair();
     const wsClient = pair[0];
     const server = pair[1];
