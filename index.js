@@ -18,7 +18,6 @@ app.post("/start-transcription", async (req, res) => {
       auto_highlights: true
     });
 
-    // Write result back to Lovable proxy
     await fetch("https://tisayujoykquxfflubjn.supabase.co/functions/v1/proxy-transcript", {
       method: "POST",
       headers: {
@@ -39,4 +38,4 @@ app.post("/start-transcription", async (req, res) => {
   }
 });
 
-app.listen(3000, () => console.log("Server running on port 3000"));
+export default app;
