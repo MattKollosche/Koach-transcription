@@ -69,6 +69,7 @@
         <button id="connectBtn" onclick="connect()">Connect</button>
         <button id="initBtn" onclick="sendInit()" disabled>Send session.init</button>
         <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+        <button onclick="testMinimalWebSocket()">Test Minimal WebSocket</button>
     </div>
 
     <h3>Event Log:</h3>
@@ -163,12 +164,37 @@
             }
         }
 
+        function testMinimalWebSocket() {
+            const wsUrl = 'wss://koach-transcription.vercel.app/api/websocket-test';
+            log('Testing minimal WebSocket at: ' + wsUrl);
+            
+            const testWs = new WebSocket(wsUrl);
+            
+            testWs.onopen = function() {
+                log('✅ Minimal WebSocket connected', 'success');
+                testWs.send(JSON.stringify({ type: 'test', message: 'Hello from test' }));
+            };
+            
+            testWs.onmessage = function(event) {
+                log('📨 Minimal WebSocket message: ' + event.data, 'receive');
+            };
+            
+            testWs.onerror = function(error) {
+                log('❌ Minimal WebSocket error: ' + error, 'error');
+            };
+            
+            testWs.onclose = function(event) {
+                log('🔌 Minimal WebSocket closed. Code: ' + event.code + ', Reason: ' + event.reason);
+            };
+        }
+
         // Log instructions on page load
         log('=== WebSocket Test Tool ===');
         log('1. Click "Connect" to establish WebSocket connection');
         log('2. Click "Send session.init" to initialize a session');
         log('3. Check your Supabase database for status updates');
         log('4. To test with real audio, use your Coach app');
+        log('5. Click "Test Minimal WebSocket" to test basic WebSocket functionality');
         log('========================');
     </script>
 </body>
