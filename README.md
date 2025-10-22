@@ -61,6 +61,34 @@ wss://your-deployment.vercel.app/api/realtime
 }
 ```
 
+---
+
+## AssemblyAI Integration Details
+
+This service uses **AssemblyAI v3 Streaming API** for real-time transcription.
+
+**API Endpoint:**
+```
+wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&format_turns=true
+```
+
+**Audio Format:**
+- Receives: Base64-encoded PCM16 from Coach app
+- Sends to AssemblyAI: Raw PCM binary buffer (decoded from base64)
+- Sample Rate: 16000 Hz
+- Channels: 1 (mono)
+
+**Authentication:**
+- Method: `Authorization` header (not query param)
+- Value: Your AssemblyAI API key
+
+**Message Types Received from AssemblyAI:**
+- `Begin` - Session initialization confirmation
+- `Turn` - Transcript updates (both partial and final)
+  - `turn_is_formatted: true` - Final transcript (formatted, complete utterance)
+  - `turn_is_formatted: false` - Partial transcript (in-progress, not used)
+- `Termination` - Session ended with duration stats
+
 ## Transcript Handling
 
 ### Database Updates

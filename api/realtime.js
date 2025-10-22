@@ -83,7 +83,7 @@ export default async function handler(request) {
     }
   }
 
-  // Connect to AssemblyAI WebSocket
+  // Connect to AssemblyAI WebSocket (v3 API)
   function connectToAssemblyAI() {
     const apiKey = process.env.ASSEMBLYAI_API_KEY;
     if (!apiKey) {
@@ -92,44 +92,64 @@ export default async function handler(request) {
       return;
     }
 
-    const aaiUrl = `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${apiKey}`;
-    assemblyAISocket = new WebSocket(aaiUrl);
+    // v3 API endpoint with format_turns for better transcript formatting
+    const aaiUrl = `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&format_turns=true`;
+    
+    // v3 uses Authorization header instead of token in URL
+    assemblyAISocket = new WebSocket(aaiUrl, {
+      headers: {
+        Authorization: apiKey,
+      },
+    });
 
     assemblyAISocket.addEventListener('open', () => {
-      console.log('Connected to AssemblyAI');
+      console.log('Connected to AssemblyAI v3 API');
     });
 
     assemblyAISocket.addEventListener('message', async (event) => {
       try {
         const data = JSON.parse(event.data);
 
-        // Only process final transcripts
-        if (data.message_type === 'FinalTranscript' && data.text && data.text.trim()) {
-          // Append to accumulated transcript
-          if (fullTranscript) {
-            fullTranscript += '\n' + data.text;
-          } else {
-            fullTranscript = data.text;
-          }
+        // Handle session begin (v3)
+        if (data.type === 'Begin') {
+          console.log('AssemblyAI session began:', data.id, 'expires at:', data.expires_at);
+        }
 
-          console.log('Final transcript received:', data.text);
+        // Handle final transcripts (v3 uses "Turn" type with format flag)
+        if (data.type === 'Turn') {
+          const transcript = data.transcript || '';
+          const isFormatted = data.turn_is_formatted;
 
-          // Send throttled updates to proxy
-          await sendTranscriptUpdate();
+          // Only process formatted (final) transcripts
+          if (isFormatted && transcript.trim()) {
+            // Append to accumulated transcript
+            if (fullTranscript) {
+              fullTranscript += '\n' + transcript;
+            } else {
+              fullTranscript = transcript;
+            }
 
-          // Optionally, send transcript back to Coach app
-          if (server.readyState === 1) {
-            server.send(JSON.stringify({
-              type: 'transcript.final',
-              text: data.text,
-              full_transcript: fullTranscript,
-            }));
+            console.log('Final transcript received:', transcript);
+
+            // Send throttled updates to proxy
+            await sendTranscriptUpdate();
+
+            // Send transcript back to Coach app
+            if (server.readyState === 1) {
+              server.send(JSON.stringify({
+                type: 'transcript.final',
+                text: transcript,
+                full_transcript: fullTranscript,
+              }));
+            }
           }
         }
 
-        // Handle session begin confirmation
-        if (data.message_type === 'SessionBegins') {
-          console.log('AssemblyAI session began:', data.session_id);
+        // Handle session termination (v3)
+        if (data.type === 'Termination') {
+          console.log('AssemblyAI session terminated:', 
+            'audio_duration:', data.audio_duration_seconds,
+            'session_duration:', data.session_duration_seconds);
         }
       } catch (error) {
         console.error('Error processing AssemblyAI message:', error.message);
@@ -187,11 +207,22 @@ export default async function handler(request) {
           return;
         }
 
-        // Forward audio to AssemblyAI
+        // v3 API requires raw PCM Buffer, not JSON with base64
+        // Decode base64 to Buffer and send directly
         if (assemblyAISocket && assemblyAISocket.readyState === 1) {
-          assemblyAISocket.send(JSON.stringify({
-            audio_data: message.audio,
-          }));
+          try {
+            // Decode base64 string to binary buffer
+            const binaryString = atob(message.audio);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            // Send raw PCM buffer (not JSON!)
+            assemblyAISocket.send(bytes.buffer);
+          } catch (error) {
+            console.error('Error decoding/sending audio:', error.message);
+          }
         } else {
           console.warn('AssemblyAI socket not ready, dropping audio chunk');
         }
