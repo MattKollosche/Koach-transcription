@@ -31,7 +31,7 @@ console.log('Environment check:');
 console.log('- ASSEMBLYAI_API_KEY:', assemblyAIKey ? '✓ Set' : '✗ Missing');
 console.log('- PROXY_SECRET:', proxySecret ? '✓ Set' : '✗ Missing');
 
-const aai = new AssemblyAI({
+const aaiClient = new AssemblyAI({
   apiKey: assemblyAIKey,
 });
 
@@ -136,14 +136,14 @@ wss.on('connection', (ws) => {
   async function initializeTranscriber() {
     console.log(`[Session ${sessionId}] Initializing AssemblyAI transcriber...`);
     try {
-      transcriber = aai.realtime.transcriber({
+      // Use Universal-Streaming SDK
+      transcriber = aaiClient.streaming.transcriber({
         sampleRate: 16000,
+        formatTurns: true,
       });
 
-      transcriber.on('open', ({ sessionId: aaiSessionId, expiresAt }) => {
-        console.log(`[Session ${sessionId}] AssemblyAI session opened`);
-        console.log(`- AssemblyAI Session ID: ${aaiSessionId}`);
-        console.log(`- Expires at: ${expiresAt}`);
+      transcriber.on('open', ({ id }) => {
+        console.log(`[Session ${sessionId}] AssemblyAI session opened with ID: ${id}`);
         isTranscriberReady = true;
       });
 
@@ -209,37 +209,30 @@ wss.on('connection', (ws) => {
         }
       });
 
-      transcriber.on('transcript', async (transcript) => {
-        console.log(`[Session ${sessionId}] Transcript received:`, {
-          message_type: transcript.message_type,
-          text: transcript.text,
-        });
+      transcriber.on('turn', async (turn) => {
+        // Only process formatted final turns per Universal-Streaming
+        if (!turn || !turn.transcript || !turn.turn_is_formatted) {
+          return;
+        }
 
-        // Only process final transcripts
-        if (transcript.message_type === 'FinalTranscript') {
-          const text = transcript.text;
-          console.log(`[Session ${sessionId}] Final transcript:`, text);
-          
-          // Append to accumulated transcript
-          if (fullTranscript) {
-            fullTranscript += '\n' + text;
-          } else {
-            fullTranscript = text;
-          }
+        const text = turn.transcript;
+        console.log(`[Session ${sessionId}] Final turn transcript:`, text);
 
-          console.log(`[Session ${sessionId}] Full transcript length:`, fullTranscript.length);
+        if (fullTranscript) {
+          fullTranscript += '\n' + text;
+        } else {
+          fullTranscript = text;
+        }
 
-          // Send throttled updates to proxy
-          await sendTranscriptUpdate();
+        console.log(`[Session ${sessionId}] Full transcript length:`, fullTranscript.length);
+        await sendTranscriptUpdate();
 
-          // Send transcript back to Koach app
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              type: 'transcript.final',
-              text: text,
-              fullTranscript: fullTranscript,
-            }));
-          }
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'transcript.final',
+            text: text,
+            fullTranscript: fullTranscript,
+          }));
         }
       });
 
@@ -313,8 +306,9 @@ wss.on('connection', (ws) => {
             const audioBuffer = Buffer.from(message.audio, 'base64');
             console.log(`[Session ${sessionId}] Sending audio to transcriber: ${audioBuffer.length} bytes`);
             
-            // Send raw PCM buffer to transcriber
-            transcriber.sendAudio(audioBuffer);
+            // Write raw PCM16 bytes to the Universal-Streaming SDK stream
+            const bytes = new Uint8Array(audioBuffer);
+            transcriber.stream().write(bytes);
           } catch (error) {
             console.error(`[Session ${sessionId}] Error sending audio:`, error.message);
           }
