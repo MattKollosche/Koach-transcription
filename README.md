@@ -1,67 +1,96 @@
-# Koach-transcription
+# Koach Transcription Service
 
-Real-time transcription service that receives audio from a Coach web application, transcribes it using AssemblyAI, and sends the transcript back to the Coach app via Supabase.
+## ⚠️ CRITICAL: STREAMING TRANSCRIPTION ONLY
+
+This service uses **AssemblyAI Streaming Speech-to-Text** for real-time transcription. 
+
+**DO NOT USE:**
+- `aai.transcripts.create()` - This is batch/POST-processing
+- Any batch transcription endpoints
+- POST-processing transcription methods
+
+**ONLY USE:**
+- `aai.streaming.transcriber()` - This is real-time streaming
+- WebSocket-based real-time transcription
+- Streaming Speech-to-Text API
 
 ## Architecture
 
-1. **Coach App (Frontend)** → Sends audio via WebSocket
-2. **Vercel Server** → Receives audio, forwards to AssemblyAI, receives transcripts
-3. **AssemblyAI** → Performs real-time transcription
-4. **Vercel Server** → Sends transcripts to Lovable Cloud Supabase proxy
-5. **Coach App** → Displays live transcription
+This service provides:
+- **Real-time streaming transcription** via WebSocket
+- **Live transcript updates** to Supabase database
+- **WebSocket bridge** between Koach app and AssemblyAI streaming API
+
+## AssemblyAI Streaming API Reference
+
+Based on: https://www.assemblyai.com/docs/universal-streaming#quickstart
+
+### Key Features:
+- Real-time streaming transcription
+- Immutable transcriptions (text won't be overwritten)
+- Turn-based processing with formatted final transcripts
+- WebSocket-based communication
+- Live transcript updates every 5 seconds
+- Recording transcript updates every 30 seconds
 
 ## Endpoints
 
-### `/api/realtime` - Real-Time Transcription WebSocket (Node.js Function)
+### `/api/realtime` - Real-Time Streaming Transcription WebSocket
 
-WebSocket endpoint that bridges audio from the Coach app to AssemblyAI using the official SDK and returns transcripts.
+WebSocket endpoint that bridges audio from the Koach app to AssemblyAI using the official SDK and returns streaming transcripts.
 
 **WebSocket URL:**
 ```
 wss://your-deployment.vercel.app/api/realtime
 ```
 
-## Message Formats
+**Message Format from Koach App:**
 
-### Messages from Coach App → Server
-
-#### 1. Session Initialization
+1. **Session Initialization:**
 ```json
 {
   "type": "session.init",
-  "sessionId": "uuid-string"
+  "sessionId": "unique-session-id"
 }
 ```
 
-**Response:** Server sends connection status to Supabase proxy.
-
-#### 2. Audio Data
+2. **Audio Data:**
 ```json
 {
   "type": "input_audio_buffer.append",
-  "audio": "base64-encoded-pcm16-audio"
+  "audio": "base64-encoded-pcm16-audio-data"
 }
 ```
 
-**Audio Specifications:**
-- **Sample Rate:** 16000 Hz (16kHz)
-- **Channels:** 1 (mono)
-- **Format:** PCM16 (16-bit PCM)
-- **Encoding:** Base64-encoded
-- **Minimum Chunk Size:** 1600 samples (100ms at 16kHz)
+**Message Format to Koach App:**
 
-### Messages from Server → Coach App
-
-#### Final Transcript
+1. **Final Transcript:**
 ```json
 {
   "type": "transcript.final",
-  "text": "This is a final transcript utterance.",
-  "full_transcript": "Previous utterance.\nThis is a final transcript utterance."
+  "text": "This is the final transcript text",
+  "full_transcript": "Complete accumulated transcript"
 }
 ```
 
----
+### `/api/health` - Health Check
+
+Simple health check endpoint to verify service status.
+
+**URL:**
+```
+https://your-deployment.vercel.app/api/health
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-01-22T05:54:07.774Z",
+  "service": "koach-transcription",
+  "version": "1.0.0"
+}
+```
 
 ## AssemblyAI Integration Details
 
@@ -76,7 +105,7 @@ const transcriber = client.streaming.transcriber({
 ```
 
 **Audio Format:**
-- Receives: Base64-encoded PCM16 from Coach app
+- Receives: Base64-encoded PCM16 from Koach app
 - Sends to AssemblyAI: Raw PCM binary buffer (decoded from base64)
 - Sample Rate: 16000 Hz
 - Channels: 1 (mono)
@@ -91,141 +120,79 @@ const transcriber = client.streaming.transcriber({
 - `error` - Connection or processing errors
 - `close` - Session termination with status codes
 
-## Transcript Handling
-
-### Database Updates
-
-Transcripts are sent to the Supabase proxy at:
-```
-https://tisayujoykquxfflubjn.supabase.co/functions/v1/proxy-transcript
-```
-
-**Update Intervals:**
-- `live_transcript`: Updated every **5 seconds** (for real-time UI)
-- `recording_transcript`: Updated every **30 seconds** (for permanent storage)
-
-**Important:** Only **final transcripts** are sent to the database (not partial/interim transcripts). This prevents self-correcting text in the UI.
-
-### Transcript Accumulation
-
-The server maintains a `fullTranscript` string that accumulates all final transcripts:
-- Each final transcript is appended with a newline separator
-- The **entire accumulated transcript** is sent on each update (not deltas)
-- Transcripts persist for the duration of the WebSocket connection
-
 ## Environment Variables
 
-Set these in your Vercel project settings:
+Required environment variables:
 
 ```bash
 ASSEMBLYAI_API_KEY=your_assemblyai_api_key
-PROXY_SECRET=your_proxy_secret_key
-```
-
-### Getting Environment Variables
-
-1. **AssemblyAI API Key:** Get from [AssemblyAI Dashboard](https://www.assemblyai.com/dashboard)
-2. **Proxy Secret:** Provided by your Lovable Cloud Supabase configuration
-
-### Setting in Vercel
-
-```bash
-# Via Vercel CLI
-vercel env add ASSEMBLYAI_API_KEY
-vercel env add PROXY_SECRET
-
-# Or via Vercel Dashboard:
-# Project Settings → Environment Variables
+PROXY_SECRET=your_supabase_proxy_secret
 ```
 
 ## Dependencies
 
 The service uses the following key dependencies:
 
-- `assemblyai` (^4.0.0) - Official AssemblyAI JavaScript SDK
-- `ws` (^8.14.2) - WebSocket server implementation
+- `assemblyai` (^4.0.0) - Official AssemblyAI JavaScript SDK for streaming transcription
 - `node-fetch` (^3.3.2) - HTTP client for proxy communication
 
-## Connection Status Updates
+## Testing
 
-The server automatically updates the Supabase database with connection status:
+### WebSocket Test
 
-| Event | Status Updates |
-|-------|----------------|
-| Session Init | `connection_status: 'connected'`, `recording_status: 'recording'` |
-| Disconnection | `connection_status: 'disconnected'`, `recording_status: 'completed'` |
-| Error | `connection_status: 'error'` |
+Use the included `test-websocket.html` file to test the WebSocket connection:
 
-## Testing Checklist
+1. Open `test-websocket.html` in your browser
+2. Click "Connect" to establish WebSocket connection
+3. Click "Send session.init" to initialize a session
+4. Check your Supabase database for status updates
 
-Before deploying to production, verify:
+### Health Check
 
-- [ ] Audio format matches: 16kHz, mono, PCM16, base64
-- [ ] Only final transcripts are sent to database (not partial)
-- [ ] Full accumulated transcript is sent (not deltas)
-- [ ] Update intervals are respected (5s for live, 30s for recording)
-- [ ] Proxy authentication works (`x-api-key` header)
-- [ ] Error handling for all proxy responses (401, 400, 404, 500)
-- [ ] Connection status updates correctly on init
-- [ ] Recording status updates on completion
-- [ ] WebSocket reconnection handled gracefully
-- [ ] Session cleanup on disconnection
-- [ ] AssemblyAI connection establishes successfully
-- [ ] Transcripts appear in Supabase database
+Test the health endpoint:
+```bash
+curl https://your-deployment.vercel.app/api/health
+```
+
+## Database Updates
+
+The service automatically updates your Supabase database via the proxy endpoint:
+
+- **live_transcript**: Updated every 5 seconds during active transcription
+- **recording_transcript**: Updated every 30 seconds during active transcription
+- **connection_status**: Updated when WebSocket connects/disconnects
+- **recording_status**: Updated when recording starts/stops
 
 ## Deployment
 
-### Deploy to Vercel
+This service is designed for deployment on Vercel:
 
-```bash
-# Install Vercel CLI (if not installed)
-npm i -g vercel
+1. Push code to GitHub repository
+2. Connect repository to Vercel
+3. Set environment variables in Vercel dashboard
+4. Deploy automatically on push to main branch
 
-# Deploy
-vercel --prod
-```
+## Important Notes
 
-### Verify Deployment
-
-1. Check deployment logs in Vercel Dashboard
-2. Test WebSocket connection using a WebSocket client
-3. Send test audio and verify transcripts appear in Supabase
-4. Monitor logs for any errors
+- **Streaming Only**: This service only provides streaming transcription, not batch processing
+- **Real-time**: Transcripts are delivered in real-time as speech is detected
+- **Immutable**: Once a transcript is finalized, it won't be changed
+- **Formatted**: Final transcripts include punctuation and proper formatting
+- **Koach App**: This service is specifically designed for the Koach application
 
 ## Troubleshooting
 
-### WebSocket Connection Fails
-- Verify `ASSEMBLYAI_API_KEY` is set in Vercel environment variables
-- Check Vercel logs for connection errors
-- Ensure Edge runtime is configured for `/api/realtime`
+### WebSocket Connection Issues
+- Verify WebSocket URL is correct
+- Check that the session is properly initialized
+- Ensure audio data is in correct format (base64 PCM16)
 
-### No Transcripts in Database
-- Verify `PROXY_SECRET` is correct
-- Check proxy endpoint returns 200 status
-- Ensure `session_id` is sent in `session.init` message
-- Monitor server logs for proxy errors (401, 400, 404, 500)
+### Transcription Issues
+- Verify AssemblyAI API key is set correctly
+- Check audio format matches requirements (16kHz, mono, PCM16)
+- Ensure sufficient audio quality for transcription
 
-### Audio Not Transcribing
-- Verify audio format: 16kHz, mono, PCM16, base64
-- Ensure minimum chunk size is 1600 samples (100ms)
-- Check AssemblyAI WebSocket connection status in logs
-- Test with AssemblyAI's example audio to isolate issues
-
-### Partial Transcripts Causing UI Issues
-- Confirm only `transcript.final` events are being sent
-- Verify `message_type === 'FinalTranscript'` in code
-- Check that partial transcripts are being ignored
-
-## Success Criteria
-
-When correctly implemented, the Coach app will:
-
-1. ✅ Show live transcription appearing in real-time (updated every 5s)
-2. ✅ Display smooth, non-flickering text (only final transcripts)
-3. ✅ Have a complete transcript stored in the database every 30s
-4. ✅ Show accurate connection and recording status
-5. ✅ Handle reconnections gracefully
-
-## License
-
-MIT
+### Database Update Issues
+- Verify PROXY_SECRET environment variable is set
+- Check Supabase proxy endpoint is accessible
+- Monitor Vercel function logs for proxy communication errors

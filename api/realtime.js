@@ -1,4 +1,18 @@
-// Vercel WebSocket endpoint for real-time transcription using AssemblyAI SDK
+// Koach Real-Time Streaming Transcription WebSocket Endpoint
+// 
+// CRITICAL: This function uses AssemblyAI STREAMING transcription ONLY
+// Reference: https://www.assemblyai.com/docs/universal-streaming#quickstart
+// 
+// DO NOT USE: aai.transcripts.create() - that is batch processing
+// ONLY USE: aai.streaming.transcriber() - this is real-time streaming
+//
+// This WebSocket endpoint:
+// 1. Receives audio from Koach app via WebSocket
+// 2. Streams audio to AssemblyAI streaming API in real-time
+// 3. Receives streaming transcript responses
+// 4. Sends final transcripts back to Koach app
+// 5. Updates Supabase database with live transcripts
+//
 const { AssemblyAI } = require('assemblyai');
 
 const PROXY_URL = 'https://tisayujoykquxfflubjn.supabase.co/functions/v1/proxy-transcript';
@@ -6,7 +20,7 @@ const DB_UPDATE_INTERVAL = 5000; // 5 seconds for live_transcript
 const RECORDING_UPDATE_INTERVAL = 30000; // 30 seconds for recording_transcript
 
 module.exports = async function handler(request) {
-  console.log('=== Real-time WebSocket Handler Called ===');
+  console.log('=== Koach Real-time WebSocket Handler Called ===');
   console.log('Request method:', request.method);
   console.log('Request URL:', request.url);
   console.log('Request headers:', Object.fromEntries(request.headers.entries()));
@@ -190,7 +204,7 @@ module.exports = async function handler(request) {
           // Send throttled updates to proxy
           await sendTranscriptUpdate();
 
-          // Send transcript back to Coach app
+          // Send transcript back to Koach app
           console.log('Sending transcript back to client');
           server.send(JSON.stringify({
             type: 'transcript.final',
@@ -220,7 +234,7 @@ module.exports = async function handler(request) {
     console.log('Starting transcriber initialization...');
     initializeTranscriber();
 
-    // Handle messages from Coach app
+    // Handle messages from Koach app
     server.addEventListener('message', async (event) => {
       console.log('Message received from client:', event.data);
       try {
@@ -281,14 +295,14 @@ module.exports = async function handler(request) {
         // Ignore other message types
         console.log('Ignoring message type:', message.type);
       } catch (error) {
-        console.error('Error processing Coach message:', error.message);
+        console.error('Error processing Koach message:', error.message);
         console.error('Message processing error stack:', error.stack);
       }
     });
 
-    // Handle disconnection from Coach app
+    // Handle disconnection from Koach app
     server.addEventListener('close', async (event) => {
-      console.log('Coach WebSocket closed:', event.code, event.reason);
+      console.log('Koach WebSocket closed:', event.code, event.reason);
 
       // Close AssemblyAI connection
       if (transcriber) {
@@ -322,10 +336,10 @@ module.exports = async function handler(request) {
       }
     });
 
-    // Handle errors from Coach app
+    // Handle errors from Koach app
     server.addEventListener('error', async (error) => {
-      console.error('Coach WebSocket error:', error);
-      console.error('Coach WebSocket error stack:', error.stack);
+      console.error('Koach WebSocket error:', error);
+      console.error('Koach WebSocket error stack:', error.stack);
 
       if (sessionId) {
         await sendToProxy({
