@@ -376,11 +376,12 @@ wss.on('error', (error) => {
 });
 
 // Start the server
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log('=================================');
   console.log('🚀 Koach Transcription Server Started');
-  console.log(`📡 WebSocket endpoint: ws://localhost:${PORT}/realtime`);
-  console.log(`🏥 Health check: http://localhost:${PORT}/health`);
+  console.log(`📡 Listening on: 0.0.0.0:${PORT}`);
+  console.log(`📡 WebSocket endpoint: /realtime`);
+  console.log(`🏥 Health check: /health`);
   console.log('=================================');
 });
 
