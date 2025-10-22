@@ -12,9 +12,9 @@ Real-time transcription service that receives audio from a Coach web application
 
 ## Endpoints
 
-### `/api/realtime` - Real-Time Transcription WebSocket (Edge Function)
+### `/api/realtime` - Real-Time Transcription WebSocket (Node.js Function)
 
-WebSocket endpoint that bridges audio from the Coach app to AssemblyAI and returns transcripts.
+WebSocket endpoint that bridges audio from the Coach app to AssemblyAI using the official SDK and returns transcripts.
 
 **WebSocket URL:**
 ```
@@ -65,11 +65,14 @@ wss://your-deployment.vercel.app/api/realtime
 
 ## AssemblyAI Integration Details
 
-This service uses **AssemblyAI v3 Streaming API** for real-time transcription.
+This service uses **AssemblyAI JavaScript SDK v4** with streaming transcription for real-time processing.
 
-**API Endpoint:**
-```
-wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&format_turns=true
+**SDK Configuration:**
+```javascript
+const transcriber = client.streaming.transcriber({
+  sampleRate: 16000,
+  formatTurns: true,
+});
 ```
 
 **Audio Format:**
@@ -79,15 +82,14 @@ wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&format_turns=true
 - Channels: 1 (mono)
 
 **Authentication:**
-- Method: `Authorization` header (not query param)
-- Value: Your AssemblyAI API key
+- Method: AssemblyAI SDK handles authentication automatically
+- Configuration: Uses `ASSEMBLYAI_API_KEY` environment variable
 
-**Message Types Received from AssemblyAI:**
-- `Begin` - Session initialization confirmation
-- `Turn` - Transcript updates (both partial and final)
-  - `turn_is_formatted: true` - Final transcript (formatted, complete utterance)
-  - `turn_is_formatted: false` - Partial transcript (in-progress, not used)
-- `Termination` - Session ended with duration stats
+**SDK Events:**
+- `open` - Session initialization with session ID
+- `turn` - Final transcript updates (formatted turns only)
+- `error` - Connection or processing errors
+- `close` - Session termination with status codes
 
 ## Transcript Handling
 
@@ -135,6 +137,14 @@ vercel env add PROXY_SECRET
 # Or via Vercel Dashboard:
 # Project Settings → Environment Variables
 ```
+
+## Dependencies
+
+The service uses the following key dependencies:
+
+- `assemblyai` (^4.0.0) - Official AssemblyAI JavaScript SDK
+- `ws` (^8.14.2) - WebSocket server implementation
+- `node-fetch` (^3.3.2) - HTTP client for proxy communication
 
 ## Connection Status Updates
 
