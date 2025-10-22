@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "assemblyai": "^4.0.0",
-    "node-fetch": "^3.3.2",
-    "ws": "^8.14.2"
+    "node-fetch": "^3.3.2"
   }
 }
