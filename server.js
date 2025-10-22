@@ -118,6 +118,7 @@ wss.on('connection', (ws) => {
   let isTranscriberReady = false;
   let reconnectAttempts = 0;
   const maxReconnectAttempts = 3;
+  let aaiWriter = null; // WritableStreamDefaultWriter for audio
 
   // Helper function to send throttled transcript updates
   async function sendTranscriptUpdate() {
@@ -238,8 +239,19 @@ wss.on('connection', (ws) => {
 
       // Connect to AssemblyAI
       console.log(`[Session ${sessionId}] Connecting to AssemblyAI...`);
-      await transcriber.connect();
+      await transcriber.connect({
+        sampleRate: 16000,
+        encoding: 'pcm_s16le',
+        formatTurns: true,
+        speechModel: 'universal-streaming-english',
+      });
       console.log(`[Session ${sessionId}] Connected to AssemblyAI streaming service`);
+      // Acquire writer for the Web WritableStream
+      try {
+        aaiWriter = transcriber.stream().getWriter();
+      } catch (err) {
+        console.error(`[Session ${sessionId}] Failed to get writer for stream:`, err);
+      }
       reconnectAttempts = 0;
 
     } catch (error) {
@@ -306,9 +318,13 @@ wss.on('connection', (ws) => {
             const audioBuffer = Buffer.from(message.audio, 'base64');
             console.log(`[Session ${sessionId}] Sending audio to transcriber: ${audioBuffer.length} bytes`);
             
-            // Write raw PCM16 bytes to the Universal-Streaming SDK stream
+            // Write raw PCM16 bytes using a single writer
             const bytes = new Uint8Array(audioBuffer);
-            transcriber.stream().write(bytes);
+            if (aaiWriter) {
+              await aaiWriter.write(bytes);
+            } else {
+              console.warn(`[Session ${sessionId}] Writer not ready, dropping audio chunk`);
+            }
           } catch (error) {
             console.error(`[Session ${sessionId}] Error sending audio:`, error.message);
           }
@@ -325,6 +341,11 @@ wss.on('connection', (ws) => {
         
         if (transcriber && isTranscriberReady) {
           console.log(`[Session ${sessionId}] Closing transcriber...`);
+          if (aaiWriter) {
+            try { await aaiWriter.close(); } catch {}
+            try { aaiWriter.releaseLock(); } catch {}
+            aaiWriter = null;
+          }
           await transcriber.close();
         }
 
@@ -363,6 +384,12 @@ wss.on('connection', (ws) => {
     if (transcriber && isTranscriberReady) {
       try {
         console.log(`[Session ${sessionId}] Closing transcriber connection...`);
+        // Close and release writer first
+        if (aaiWriter) {
+          try { await aaiWriter.close(); } catch {}
+          try { aaiWriter.releaseLock(); } catch {}
+          aaiWriter = null;
+        }
         await transcriber.close();
       } catch (error) {
         console.error(`[Session ${sessionId}] Error closing transcriber:`, error);
