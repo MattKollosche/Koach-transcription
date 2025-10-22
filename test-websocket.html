@@ -53,7 +53,12 @@
     
     <div>
         <label for="wsUrl">WebSocket URL:</label><br>
-        <input type="text" id="wsUrl" value="wss://koach-transcription.vercel.app/api/realtime" />
+        <input type="text" id="wsUrl" value="ws://localhost:3000/realtime" />
+        <p style="font-size: 12px; color: #666;">
+            For local: ws://localhost:3000/realtime<br>
+            For Railway: wss://your-app.railway.app/realtime<br>
+            For Render: wss://your-app.onrender.com/realtime
+        </p>
     </div>
 
     <div>

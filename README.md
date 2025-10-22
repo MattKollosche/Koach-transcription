@@ -1,5 +1,28 @@
 # Koach Transcription Service
 
+## ⚠️ IMPORTANT: WebSocket Server (Not Vercel Compatible)
+
+**UPDATE:** This service has been converted to a standard WebSocket server because **Vercel does not support WebSocket connections in serverless functions**.
+
+### Why the Change?
+
+The original implementation tried to use WebSockets on Vercel, which caused `FUNCTION_INVOCATION_FAILED` errors because:
+- Vercel serverless functions are stateless and short-lived
+- WebSocket connections require persistent, long-lived connections
+- AssemblyAI streaming transcription requires bidirectional WebSocket communication
+
+### Solution
+
+This service now uses a proper WebSocket server with the `ws` library that can be deployed to platforms that support persistent connections:
+- ✅ **Railway** (Recommended)
+- ✅ **Render**
+- ✅ **Heroku**
+- ✅ **Fly.io**
+- ✅ **DigitalOcean App Platform**
+- ❌ **Vercel** (Not supported)
+
+---
+
 ## ⚠️ CRITICAL: STREAMING TRANSCRIPTION ONLY
 
 This service uses **AssemblyAI Streaming Speech-to-Text** for real-time transcription. 
@@ -10,7 +33,7 @@ This service uses **AssemblyAI Streaming Speech-to-Text** for real-time transcri
 - POST-processing transcription methods
 
 **ONLY USE:**
-- `aai.streaming.transcriber()` - This is real-time streaming
+- `aai.realtime.transcriber()` - This is real-time streaming
 - WebSocket-based real-time transcription
 - Streaming Speech-to-Text API
 
@@ -20,33 +43,152 @@ This service provides:
 - **Real-time streaming transcription** via WebSocket
 - **Live transcript updates** to Supabase database
 - **WebSocket bridge** between Koach app and AssemblyAI streaming API
+- **Persistent connection** for continuous audio streaming
 
-## AssemblyAI Streaming API Reference
+## Quick Start
 
-Based on: https://www.assemblyai.com/docs/universal-streaming#quickstart
+### 1. Install Dependencies
 
-### Key Features:
-- Real-time streaming transcription
-- Immutable transcriptions (text won't be overwritten)
-- Turn-based processing with formatted final transcripts
-- WebSocket-based communication
-- Live transcript updates every 5 seconds
-- Recording transcript updates every 30 seconds
+```bash
+npm install
+```
+
+### 2. Set Environment Variables
+
+Create a `.env` file or set environment variables:
+
+```bash
+ASSEMBLYAI_API_KEY=your_assemblyai_api_key_here
+PROXY_SECRET=your_proxy_secret_here  # Optional, for Supabase integration
+PORT=3000  # Optional, will be set automatically by hosting platforms
+```
+
+### 3. Run Locally
+
+```bash
+npm start
+```
+
+The server will start on port 3000 (or the PORT environment variable):
+- **WebSocket endpoint:** `ws://localhost:3000/realtime`
+- **Health check:** `http://localhost:3000/health`
+
+## Deployment Options
+
+### Option 1: Railway (Recommended)
+
+1. Install Railway CLI:
+   ```bash
+   npm install -g @railway/cli
+   ```
+
+2. Login and create new project:
+   ```bash
+   railway login
+   railway init
+   ```
+
+3. Set environment variables:
+   ```bash
+   railway variables set ASSEMBLYAI_API_KEY=your_key_here
+   railway variables set PROXY_SECRET=your_secret_here
+   ```
+
+4. Deploy:
+   ```bash
+   railway up
+   ```
+
+5. Get your WebSocket URL:
+   ```bash
+   railway domain
+   ```
+   Your WebSocket endpoint will be: `wss://your-app.railway.app/realtime`
+
+### Option 2: Render
+
+1. Create a new Web Service on [Render](https://render.com)
+
+2. Connect your GitHub repository
+
+3. Configure build settings:
+   - **Build Command:** `npm install`
+   - **Start Command:** `npm start`
+
+4. Add environment variables:
+   - `ASSEMBLYAI_API_KEY`
+   - `PROXY_SECRET`
+
+5. Deploy!
+
+Your WebSocket endpoint will be: `wss://your-app.onrender.com/realtime`
+
+### Option 3: Heroku
+
+1. Install Heroku CLI and login:
+   ```bash
+   heroku login
+   ```
+
+2. Create new app:
+   ```bash
+   heroku create your-app-name
+   ```
+
+3. Set environment variables:
+   ```bash
+   heroku config:set ASSEMBLYAI_API_KEY=your_key_here
+   heroku config:set PROXY_SECRET=your_secret_here
+   ```
+
+4. Deploy:
+   ```bash
+   git push heroku main
+   ```
+
+Your WebSocket endpoint will be: `wss://your-app-name.herokuapp.com/realtime`
 
 ## Endpoints
 
-### `/api/realtime` - Real-Time Streaming Transcription WebSocket
+### `GET /` - Root Endpoint
 
-WebSocket endpoint that bridges audio from the Koach app to AssemblyAI using the official SDK and returns streaming transcripts.
+Simple information endpoint.
+
+**Response:**
+```
+Koach Transcription WebSocket Server
+Connect to /realtime for streaming transcription
+```
+
+### `GET /health` - Health Check
+
+Health check endpoint to verify service status.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-10-22T12:00:00.000Z",
+  "service": "koach-transcription",
+  "version": "2.0.0",
+  "websocket": "enabled"
+}
+```
+
+### `WS /realtime` - Real-Time Streaming Transcription
+
+WebSocket endpoint that bridges audio from the Koach app to AssemblyAI and returns streaming transcripts.
 
 **WebSocket URL:**
 ```
-wss://your-deployment.vercel.app/api/realtime
+wss://your-deployment.railway.app/realtime
 ```
 
-**Message Format from Koach App:**
+## WebSocket Protocol
 
-1. **Session Initialization:**
+### Messages FROM Koach App TO Server:
+
+#### 1. Session Initialization
 ```json
 {
   "type": "session.init",
@@ -54,7 +196,15 @@ wss://your-deployment.vercel.app/api/realtime
 }
 ```
 
-2. **Audio Data:**
+**Response:**
+```json
+{
+  "type": "session.ready",
+  "sessionId": "unique-session-id"
+}
+```
+
+#### 2. Audio Data
 ```json
 {
   "type": "input_audio_buffer.append",
@@ -62,9 +212,16 @@ wss://your-deployment.vercel.app/api/realtime
 }
 ```
 
-**Message Format to Koach App:**
+#### 3. Session End
+```json
+{
+  "type": "session.end"
+}
+```
 
-1. **Final Transcript:**
+### Messages FROM Server TO Koach App:
+
+#### 1. Final Transcript
 ```json
 {
   "type": "transcript.final",
@@ -73,86 +230,47 @@ wss://your-deployment.vercel.app/api/realtime
 }
 ```
 
-### `/api/health` - Health Check
-
-Simple health check endpoint to verify service status.
-
-**URL:**
-```
-https://your-deployment.vercel.app/api/health
-```
-
-**Response:**
+#### 2. Error
 ```json
 {
-  "status": "healthy",
-  "timestamp": "2025-01-22T05:54:07.774Z",
-  "service": "koach-transcription",
-  "version": "1.0.0"
+  "type": "error",
+  "error": "Error message"
 }
 ```
 
 ## AssemblyAI Integration Details
 
-This service uses **AssemblyAI JavaScript SDK v4** with streaming transcription for real-time processing.
+This service uses **AssemblyAI JavaScript SDK v4** with real-time streaming transcription.
 
 **SDK Configuration:**
 ```javascript
-const transcriber = client.streaming.transcriber({
+const transcriber = aai.realtime.transcriber({
   sampleRate: 16000,
-  formatTurns: true,
 });
 ```
 
 **Audio Format:**
-- Receives: Base64-encoded PCM16 from Koach app
-- Sends to AssemblyAI: Raw PCM binary buffer (decoded from base64)
-- Sample Rate: 16000 Hz
-- Channels: 1 (mono)
-
-**Authentication:**
-- Method: AssemblyAI SDK handles authentication automatically
-- Configuration: Uses `ASSEMBLYAI_API_KEY` environment variable
+- **Input:** Base64-encoded PCM16 from Koach app
+- **Sent to AssemblyAI:** Raw PCM binary buffer (decoded from base64)
+- **Sample Rate:** 16000 Hz (16 kHz)
+- **Channels:** 1 (mono)
+- **Encoding:** PCM16 (16-bit linear PCM)
 
 **SDK Events:**
-- `open` - Session initialization with session ID
-- `turn` - Final transcript updates (formatted turns only)
+- `open` - Session opened with AssemblyAI
+- `transcript` - Transcript updates (only FinalTranscript messages are processed)
 - `error` - Connection or processing errors
-- `close` - Session termination with status codes
+- `close` - Session closed
+
+**Reference:** https://www.assemblyai.com/docs/universal-streaming#quickstart
 
 ## Environment Variables
 
-Required environment variables:
-
-```bash
-ASSEMBLYAI_API_KEY=your_assemblyai_api_key
-PROXY_SECRET=your_supabase_proxy_secret
-```
-
-## Dependencies
-
-The service uses the following key dependencies:
-
-- `assemblyai` (^4.0.0) - Official AssemblyAI JavaScript SDK for streaming transcription
-- `node-fetch` (^3.3.2) - HTTP client for proxy communication
-
-## Testing
-
-### WebSocket Test
-
-Use the included `test-websocket.html` file to test the WebSocket connection:
-
-1. Open `test-websocket.html` in your browser
-2. Click "Connect" to establish WebSocket connection
-3. Click "Send session.init" to initialize a session
-4. Check your Supabase database for status updates
-
-### Health Check
-
-Test the health endpoint:
-```bash
-curl https://your-deployment.vercel.app/api/health
-```
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ASSEMBLYAI_API_KEY` | ✅ Yes | Your AssemblyAI API key from https://www.assemblyai.com/dashboard |
+| `PROXY_SECRET` | ⚠️ Optional | Secret for authenticating with Supabase proxy function |
+| `PORT` | ⚠️ Optional | Server port (defaults to 3000, set automatically by hosting platforms) |
 
 ## Database Updates
 
@@ -160,39 +278,158 @@ The service automatically updates your Supabase database via the proxy endpoint:
 
 - **live_transcript**: Updated every 5 seconds during active transcription
 - **recording_transcript**: Updated every 30 seconds during active transcription
-- **connection_status**: Updated when WebSocket connects/disconnects
-- **recording_status**: Updated when recording starts/stops
+- **connection_status**: Updated when WebSocket connects/disconnects/errors
+- **recording_status**: Updated when recording starts/completes
 
-## Deployment
+**Proxy Endpoint:** `https://tisayujoykquxfflubjn.supabase.co/functions/v1/proxy-transcript`
 
-This service is designed for deployment on Vercel:
+## Testing
 
-1. Push code to GitHub repository
-2. Connect repository to Vercel
-3. Set environment variables in Vercel dashboard
-4. Deploy automatically on push to main branch
+### Local Testing
+
+1. Start the server:
+   ```bash
+   npm start
+   ```
+
+2. Open `test-websocket.html` in your browser
+
+3. Update the WebSocket URL to `ws://localhost:3000/realtime`
+
+4. Click "Connect" to establish connection
+
+5. Click "Send session.init" to initialize a session
+
+6. Monitor the console for messages
+
+### Health Check Testing
+
+```bash
+# Local
+curl http://localhost:3000/health
+
+# Production
+curl https://your-app.railway.app/health
+```
+
+### WebSocket Testing with wscat
+
+Install wscat:
+```bash
+npm install -g wscat
+```
+
+Connect to WebSocket:
+```bash
+# Local
+wscat -c ws://localhost:3000/realtime
+
+# Production
+wscat -c wss://your-app.railway.app/realtime
+```
+
+Send messages:
+```json
+{"type":"session.init","sessionId":"test-session-123"}
+```
+
+## Logging
+
+The server includes comprehensive logging for debugging:
+
+- Connection establishment and closure
+- Session initialization
+- Audio data reception and forwarding
+- Transcript reception and delivery
+- Error handling
+- Database update attempts
+
+All logs are prefixed with `[Session {sessionId}]` for easy tracking.
+
+## Troubleshooting
+
+### WebSocket Connection Issues
+
+**Problem:** Cannot connect to WebSocket
+- ✓ Verify the URL is correct (`wss://` for HTTPS, `ws://` for HTTP)
+- ✓ Check that the server is running and accessible
+- ✓ Ensure no firewall is blocking WebSocket connections
+- ✓ Check server logs for connection errors
+
+**Problem:** Connection closes immediately
+- ✓ Send `session.init` message right after connecting
+- ✓ Check AssemblyAI API key is valid
+- ✓ Check server logs for initialization errors
+
+### Transcription Issues
+
+**Problem:** No transcripts received
+- ✓ Verify audio format is correct (16kHz, mono, PCM16)
+- ✓ Ensure audio data is base64-encoded
+- ✓ Check that audio chunks are being sent regularly
+- ✓ Verify AssemblyAI API key has streaming access
+- ✓ Check server logs for transcription errors
+
+**Problem:** Transcripts are inaccurate
+- ✓ Ensure audio quality is good (clear speech, minimal background noise)
+- ✓ Verify sample rate is exactly 16000 Hz
+- ✓ Check that audio is mono (single channel)
+
+### Database Update Issues
+
+**Problem:** Database not updating
+- ✓ Verify `PROXY_SECRET` environment variable is set
+- ✓ Check that proxy endpoint is accessible
+- ✓ Check server logs for proxy communication errors
+- ✓ Verify sessionId is being sent correctly
+
+### Platform-Specific Issues
+
+**Railway:**
+- Make sure you've set environment variables in Railway dashboard
+- Check deployment logs for startup errors
+- Verify domain is assigned to your service
+
+**Render:**
+- Ensure build and start commands are correct
+- Check that health check path is `/health`
+- Verify environment variables are set in Render dashboard
+
+**Heroku:**
+- Check that `Procfile` is committed to git
+- Verify environment variables with `heroku config`
+- Monitor logs with `heroku logs --tail`
 
 ## Important Notes
 
 - **Streaming Only**: This service only provides streaming transcription, not batch processing
 - **Real-time**: Transcripts are delivered in real-time as speech is detected
-- **Immutable**: Once a transcript is finalized, it won't be changed
-- **Formatted**: Final transcripts include punctuation and proper formatting
-- **Koach App**: This service is specifically designed for the Koach application
+- **Persistent Connection**: Requires hosting platform with WebSocket support
+- **Not for Vercel**: This service cannot be deployed on Vercel due to WebSocket limitations
+- **Koach Integration**: Designed specifically for the Koach application
 
-## Troubleshooting
+## Migration from Vercel
 
-### WebSocket Connection Issues
-- Verify WebSocket URL is correct
-- Check that the session is properly initialized
-- Ensure audio data is in correct format (base64 PCM16)
+If you were previously trying to deploy this on Vercel:
 
-### Transcription Issues
-- Verify AssemblyAI API key is set correctly
-- Check audio format matches requirements (16kHz, mono, PCM16)
-- Ensure sufficient audio quality for transcription
+1. Choose a new hosting platform (Railway recommended)
+2. Deploy using instructions above
+3. Update your Koach app with the new WebSocket URL
+4. Update environment variables on new platform
+5. Test the connection
 
-### Database Update Issues
-- Verify PROXY_SECRET environment variable is set
-- Check Supabase proxy endpoint is accessible
-- Monitor Vercel function logs for proxy communication errors
+## Dependencies
+
+- `assemblyai` (^4.0.0) - Official AssemblyAI JavaScript SDK for streaming transcription
+- `ws` (^8.18.0) - WebSocket server implementation
+
+## Support
+
+For issues or questions:
+- Check the [AssemblyAI documentation](https://www.assemblyai.com/docs)
+- Review server logs for error messages
+- Test with the included HTML test tool
+
+## License
+
+MIT

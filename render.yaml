@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: koach-transcription
+    runtime: node
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: PROXY_SECRET
+        sync: false
+
