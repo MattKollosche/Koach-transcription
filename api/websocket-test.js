@@ -1,5 +1,5 @@
 // Minimal WebSocket test function for debugging
-export default async function handler(request) {
+module.exports = async function handler(request) {
   console.log('=== WebSocket Test Function Called ===');
   console.log('Request method:', request.method);
   console.log('Request headers:', Object.fromEntries(request.headers.entries()));

@@ -1,11 +1,11 @@
 // Vercel WebSocket endpoint for real-time transcription using AssemblyAI SDK
-import { AssemblyAI } from 'assemblyai';
+const { AssemblyAI } = require('assemblyai');
 
 const PROXY_URL = 'https://tisayujoykquxfflubjn.supabase.co/functions/v1/proxy-transcript';
 const DB_UPDATE_INTERVAL = 5000; // 5 seconds for live_transcript
 const RECORDING_UPDATE_INTERVAL = 30000; // 30 seconds for recording_transcript
 
-export default async function handler(request) {
+module.exports = async function handler(request) {
   console.log('=== Real-time WebSocket Handler Called ===');
   console.log('Request method:', request.method);
   console.log('Request URL:', request.url);

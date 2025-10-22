@@ -1,5 +1,5 @@
 // Simple HTTP test function to verify basic function execution
-export default async function handler(request) {
+module.exports = async function handler(request) {
   console.log('=== HTTP Test Function Called ===');
   console.log('Request method:', request.method);
   console.log('Request URL:', request.url);
