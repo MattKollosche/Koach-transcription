@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test - Koach Transcription</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .connecting { background: #fff3cd; color: #856404; }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background: #007bff;
+            color: white;
+            font-size: 14px;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        #log {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+        input {
+            padding: 8px;
+            width: 400px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎤 WebSocket Test - Koach Transcription</h1>
+    
+    <div>
+        <label for="wsUrl">WebSocket URL:</label><br>
+        <input type="text" id="wsUrl" value="wss://koach-transcription.vercel.app/api/realtime" />
+    </div>
+
+    <div>
+        <label for="sessionId">Session ID:</label><br>
+        <input type="text" id="sessionId" value="test-session-123" />
+    </div>
+
+    <div id="status" class="status disconnected">
+        Status: Disconnected
+    </div>
+
+    <div>
+        <button id="connectBtn" onclick="connect()">Connect</button>
+        <button id="initBtn" onclick="sendInit()" disabled>Send session.init</button>
+        <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+    </div>
+
+    <h3>Event Log:</h3>
+    <div id="log"></div>
+
+    <script>
+        let ws = null;
+        const logEl = document.getElementById('log');
+        const statusEl = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const initBtn = document.getElementById('initBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'send' ? '📤' : type === 'receive' ? '📥' : 'ℹ️';
+            logEl.textContent += `[${timestamp}] ${prefix} ${message}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function updateStatus(status, className) {
+            statusEl.textContent = `Status: ${status}`;
+            statusEl.className = `status ${className}`;
+        }
+
+        function connect() {
+            const url = document.getElementById('wsUrl').value;
+            log(`Connecting to ${url}...`);
+            updateStatus('Connecting...', 'connecting');
+
+            try {
+                ws = new WebSocket(url);
+
+                ws.onopen = () => {
+                    log('WebSocket connected successfully!', 'success');
+                    updateStatus('Connected', 'connected');
+                    connectBtn.disabled = true;
+                    initBtn.disabled = false;
+                    disconnectBtn.disabled = false;
+                };
+
+                ws.onmessage = (event) => {
+                    log(`Received: ${event.data}`, 'receive');
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.type === 'transcript.final') {
+                            log(`📝 Final Transcript: "${data.text}"`, 'success');
+                        }
+                    } catch (e) {
+                        // Not JSON, that's okay
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    log(`WebSocket error: ${error.message || 'Unknown error'}`, 'error');
+                    updateStatus('Error', 'disconnected');
+                };
+
+                ws.onclose = (event) => {
+                    log(`WebSocket closed. Code: ${event.code}, Reason: ${event.reason || 'None'}`, 'error');
+                    updateStatus('Disconnected', 'disconnected');
+                    connectBtn.disabled = false;
+                    initBtn.disabled = true;
+                    disconnectBtn.disabled = true;
+                };
+            } catch (error) {
+                log(`Failed to connect: ${error.message}`, 'error');
+                updateStatus('Connection Failed', 'disconnected');
+            }
+        }
+
+        function sendInit() {
+            const sessionId = document.getElementById('sessionId').value;
+            const message = {
+                type: 'session.init',
+                sessionId: sessionId
+            };
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(message));
+                log(`Sent: ${JSON.stringify(message)}`, 'send');
+                log('✅ Session initialized! Check your Supabase database for connection_status update.', 'success');
+            } else {
+                log('WebSocket is not open!', 'error');
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                log('Disconnecting...');
+            }
+        }
+
+        // Log instructions on page load
+        log('=== WebSocket Test Tool ===');
+        log('1. Click "Connect" to establish WebSocket connection');
+        log('2. Click "Send session.init" to initialize a session');
+        log('3. Check your Supabase database for status updates');
+        log('4. To test with real audio, use your Coach app');
+        log('========================');
+    </script>
+</body>
+</html>
+
