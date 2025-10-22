@@ -1,12 +1,10 @@
 {
   "functions": {
     "api/**/*.js": {
-      "runtime": "nodejs18.x",
-      "regions": ["syd1"]
+      "runtime": "nodejs18.x"
     },
     "api/realtime.js": {
-      "runtime": "edge",
-      "regions": ["syd1"]
+      "runtime": "edge"
     }
   }
 }
